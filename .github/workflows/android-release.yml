@@ -87,13 +87,16 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      # ========================================
-      # 5. BUILD WEB APP (Vite)
-      # ========================================
-      - name: Build web app
-        run: npm run build
+            - name: Build web app (skip if no build script)
+        run: |
+          if npm run | grep -q " build"; then
+            npm run build
+          else
+            echo "No build script found in package.json; skipping web build."
+          fi
         env:
           NODE_ENV: production
+
 
       # ========================================
       # 6. SET UP ANDROID SDK
