@@ -87,7 +87,7 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-            - name: Build web app (skip if no build script)
+                  - name: Build web app (skip if no build script)
         run: |
           if npm run | grep -q " build"; then
             npm run build
@@ -96,6 +96,7 @@ jobs:
           fi
         env:
           NODE_ENV: production
+
 
 
       # ========================================
