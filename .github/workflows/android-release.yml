@@ -74,12 +74,12 @@ jobs:
           cache: npm
 
       - name: Install Node dependencies
-        run: npm ci
+         run: npm ci
 
       - name: Build web (skip if missing)
-        run: npm run build --if-present
-        env:
-          NODE_ENV: production
+       run: npm run build --if-present
+       env:
+           NODE_ENV: production
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -91,18 +91,32 @@ jobs:
         run: |
           sdkmanager "platforms;android-35"
           sdkmanager "build-tools;35.0.0"
-          sdkmanager "platform-tools"
+          sdkmanager "platform-tools"                                               
+          - name: Install Capacitor Android + ensure appId exists
+            run: |
+              npm i -D @capacitor/core @capacitor/cli @capacitor/android
+              if [ ! -f capacitor.config.json ]; then
+              echo "Creating capacitor.config.json"
+              echo '{"appId":"com.hangupfx.app","appName":"HangUpFX","webDir":"dist","bundledWebRuntime":false}' > capacitor.config.json
+            else
+            echo "Capacitor config exists"
+          fi
+    
 
-      - name: Ensure Capacitor CLI is available
-        run: npm i -D @capacitor/cli @capacitor/core
+
+
 
       - name: Add Capacitor Android platform
         run: |
           if [ ! -d "android" ]; then
-            npx cap add android
+            ./node_modules/.bin/cap add android
           else
             echo "android/ already exists"
           fi
+
+      
+
+     
 
       - name: Sync Capacitor web assets
         run: npx cap sync android
