@@ -57,51 +57,30 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ========================================
-      # 1. CHECKOUT
-      # ========================================
+             
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ========================================
-      # 2. SET UP JAVA (JDK 17)
-      # ========================================
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: ${{ env.JAVA_VERSION }}
+          java-version: "17"
           distribution: temurin
 
-      # ========================================
-      # 3. SET UP NODE.JS
-      # ========================================
-      - name: Set up Node.js ${{ env.NODE_VERSION }}
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: "20"
           cache: npm
 
-      # ========================================
-      # 4. INSTALL NODE DEPENDENCIES
-      # ========================================
-      
       - name: Install Node dependencies
         run: npm ci
 
-      # ========================================
-      # 5. BUILD WEB APP (skip if no build script)
-      # ========================================
-      - name: Build web app (skip if no build script)
+      - name: Build web (skip if missing)
         run: npm run build --if-present
         env:
           NODE_ENV: production
 
-
-
-
-      # ========================================
-      # 6. SET UP ANDROID SDK
-      # ========================================
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -110,226 +89,34 @@ jobs:
 
       - name: Install Android SDK components
         run: |
-          sdkmanager "platforms;android-${{ env.ANDROID_COMPILE_SDK }}"
-          sdkmanager "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
           sdkmanager "platform-tools"
 
-      # ========================================
-      # 7. ADD CAPACITOR ANDROID PLATFORM
-      # ========================================
+      - name: Ensure Capacitor CLI is available
+        run: npm i -D @capacitor/cli @capacitor/core
+
       - name: Add Capacitor Android platform
         run: |
           if [ ! -d "android" ]; then
-            echo "Android platform not found. Adding..."
             npx cap add android
           else
-            echo "Android platform already exists."
+            echo "android/ already exists"
           fi
 
-      # ========================================
-      # 8. SYNC WEB ASSETS TO ANDROID
-      # ========================================
       - name: Sync Capacitor web assets
         run: npx cap sync android
 
-      # ========================================
-      # 9. DETERMINE VERSION
-      # ========================================
-      - name: Determine version name and code
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version_name }}" ]; then
-            VERSION_NAME="${{ github.event.inputs.version_name }}"
-          else
-            VERSION_NAME=$(node -p "require('./package.json').version || '1.0.0'")
-            if [ "$VERSION_NAME" = "0.0.0" ]; then
-              VERSION_NAME="1.0.0"
-            fi
-          fi
-
-          if [ -n "${{ github.event.inputs.version_code }}" ]; then
-            VERSION_CODE="${{ github.event.inputs.version_code }}"
-          else
-            VERSION_CODE=${{ github.run_number }}
-          fi
-
-          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_OUTPUT
-          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_OUTPUT
-          echo "📦 Building version: $VERSION_NAME ($VERSION_CODE)"
-
-      # ========================================
-      # 10. DECODE SIGNING KEYSTORE
-      # ========================================
       - name: Decode upload keystore
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/hangupfx-upload.keystore
-          echo "✅ Keystore decoded to android/app/hangupfx-upload.keystore"
 
-          keytool -list -keystore android/app/hangupfx-upload.keystore \
-            -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
-            -alias "${{ secrets.ANDROID_KEY_ALIAS }}" 2>/dev/null && \
-            echo "✅ Keystore verified successfully" || \
-            echo "⚠️ Keystore verification failed — build may fail at signing step"
-
-      # ========================================
-      # 11. ADD PROGUARD RULES
-      # ========================================
-      - name: Add ProGuard/R8 rules
-        run: |
-          cat > android/app/proguard-rules.pro << 'PROGUARD_RULES'
-          # ============================================================
-          # HangUpFX ProGuard/R8 Rules
-          # ============================================================
-
-          -keep class com.getcapacitor.** { *; }
-          -keep @com.getcapacitor.annotation.CapacitorPlugin public class * {
-              @com.getcapacitor.annotation.PermissionCallback <methods>;
-              @com.getcapacitor.PluginMethod <methods>;
-          }
-          -dontwarn com.getcapacitor.**
-
-          -keep class com.capacitorjs.plugins.** { *; }
-          -dontwarn com.capacitorjs.plugins.**
-
-          -keep class com.revenuecat.** { *; }
-          -dontwarn com.revenuecat.**
-
-          -keep class com.android.vending.billing.** { *; }
-          -keep class com.android.billingclient.** { *; }
-          -dontwarn com.android.billingclient.**
-
-          -keepclassmembers class * {
-              @android.webkit.JavascriptInterface <methods>;
-          }
-          -keepattributes JavascriptInterface
-
-          -keepclassmembers class * extends android.webkit.WebViewClient {
-              public void *(android.webkit.WebView, java.lang.String);
-              public void *(android.webkit.WebView, java.lang.String, android.graphics.Bitmap);
-              public boolean *(android.webkit.WebView, java.lang.String);
-          }
-
-          -keepattributes Signature
-          -keepattributes *Annotation*
-          -keepattributes SourceFile,LineNumberTable
-          -keepattributes InnerClasses,EnclosingMethod
-
-          -dontwarn kotlin.**
-          -dontwarn kotlinx.**
-          -keep class kotlin.Metadata { *; }
-
-          -dontwarn okhttp3.**
-          -dontwarn okio.**
-          -keep class okhttp3.** { *; }
-          -keep class okio.** { *; }
-
-          -keep class com.google.gson.** { *; }
-          -keepattributes *Annotation*
-
-          -assumenosideeffects class android.util.Log {
-              public static boolean isLoggable(java.lang.String, int);
-              public static int v(...);
-              public static int d(...);
-              public static int i(...);
-          }
-          PROGUARD_RULES
-
-          echo "✅ ProGuard rules written"
-
-      # ========================================
-      # 12. PATCH ANDROID MANIFEST
-      # ========================================
-      - name: Patch AndroidManifest.xml
-        run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-
-          if ! grep -q "com.android.vending.BILLING" "$MANIFEST"; then
-            sed -i 's|<application|<uses-permission android:name="com.android.vending.BILLING" />\n\n    <application|' "$MANIFEST"
-            echo "✅ Added BILLING permission to AndroidManifest.xml"
-          fi
-
-          if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
-            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET" />\n    <application|' "$MANIFEST"
-            echo "✅ Added INTERNET permission to AndroidManifest.xml"
-          fi
-
-          if ! grep -q "android.permission.RECORD_AUDIO" "$MANIFEST"; then
-            sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <application|' "$MANIFEST"
-            echo "✅ Added RECORD_AUDIO permission to AndroidManifest.xml"
-          fi
-
-          if ! grep -q "android.permission.MODIFY_AUDIO_SETTINGS" "$MANIFEST"; then
-            sed -i 's|<application|<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <application|' "$MANIFEST"
-            echo "✅ Added MODIFY_AUDIO_SETTINGS permission to AndroidManifest.xml"
-          fi
-
-          sed -i 's|android:usesCleartextTraffic="true"|android:usesCleartextTraffic="false"|g' "$MANIFEST"
-
-          echo ""
-          echo "=== Final AndroidManifest.xml ==="
-          cat "$MANIFEST"
-          echo "================================="
-
-      # ========================================
-      # 13. CONFIGURE GRADLE PROPERTIES
-      # ========================================
-      - name: Configure Gradle properties
-        run: |
-          GRADLE_PROPS="android/gradle.properties"
-
-          cat >> "$GRADLE_PROPS" << 'GRADLE_PROPS_CONTENT'
-
-          android.useAndroidX=true
-          android.enableJetifier=true
-
-          org.gradle.jvmargs=-Xmx4096m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
-          org.gradle.parallel=true
-          org.gradle.caching=true
-          org.gradle.daemon=true
-          org.gradle.configureondemand=true
-
-          android.enableR8.fullMode=true
-
-          android.defaults.buildfeatures.buildconfig=false
-          android.defaults.buildfeatures.aidl=false
-          android.defaults.buildfeatures.renderscript=false
-          android.defaults.buildfeatures.resvalues=false
-          android.defaults.buildfeatures.shaders=false
-          GRADLE_PROPS_CONTENT
-
-          echo "✅ Gradle properties configured"
-
-      # ========================================
-      # 14. MAKE GRADLEW EXECUTABLE
-      # ========================================
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
-      # ========================================
-      # 15. CACHE GRADLE
-      # ========================================
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            android/.gradle
-          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-      # ========================================
-      # 16. BUILD RELEASE AAB
-      # ========================================
-      - name: Build release Android App Bundle (.AAB)
+      - name: Build release AAB
         working-directory: android
         run: |
-          echo "🔨 Building release AAB..."
-          echo "   Version: ${{ steps.version.outputs.VERSION_NAME }} (${{ steps.version.outputs.VERSION_CODE }})"
-          echo "   Package: ${{ env.APP_PACKAGE_NAME }}"
-          echo ""
-
           ./gradlew bundleRelease \
             --no-daemon \
             --stacktrace \
@@ -338,75 +125,9 @@ jobs:
             -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      # ========================================
-      # 17. VERIFY AAB
-      # ========================================
-      - name: Verify AAB was built
-        id: verify
-        run: |
-          AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
-
-          if [ ! -f "$AAB_PATH" ]; then
-            echo "❌ AAB file not found at $AAB_PATH"
-            echo "Searching for AAB files..."
-            find android -name "*.aab" -type f 2>/dev/null
-            exit 1
-          fi
-
-          AAB_SIZE=$(stat -c%s "$AAB_PATH" 2>/dev/null || stat -f%z "$AAB_PATH" 2>/dev/null)
-          AAB_SIZE_MB=$(echo "scale=2; $AAB_SIZE / 1048576" | bc)
-          AAB_SHA256=$(sha256sum "$AAB_PATH" | awk '{print $1}')
-
-          echo "✅ AAB built successfully!"
-          echo "AAB_PATH=$AAB_PATH" >> $GITHUB_OUTPUT
-          echo "AAB_SIZE_MB=$AAB_SIZE_MB" >> $GITHUB_OUTPUT
-          echo "AAB_SHA256=$AAB_SHA256" >> $GITHUB_OUTPUT
-
-      # ========================================
-      # 18. RENAME AAB WITH VERSION INFO
-      # ========================================
-      - name: Rename AAB with version info
-        id: rename
-        run: |
-          VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
-          VERSION_CODE="${{ steps.version.outputs.VERSION_CODE }}"
-          ORIGINAL="android/app/build/outputs/bundle/release/app-release.aab"
-          RENAMED="android/app/build/outputs/bundle/release/HangUpFX-v${VERSION_NAME}-${VERSION_CODE}-release.aab"
-
-          cp "$ORIGINAL" "$RENAMED"
-          echo "AAB_FILENAME=HangUpFX-v${VERSION_NAME}-${VERSION_CODE}-release.aab" >> $GITHUB_OUTPUT
-          echo "AAB_RENAMED_PATH=$RENAMED" >> $GITHUB_OUTPUT
-
-      # ========================================
-      # 19. UPLOAD AAB AS ARTIFACT
-      # ========================================
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HangUpFX-v${{ steps.version.outputs.VERSION_NAME }}-${{ steps.version.outputs.VERSION_CODE }}-release-aab
+          name: HangUpFX-release-aab
           path: android/app/build/outputs/bundle/release/*.aab
-          retention-days: 90
           if-no-files-found: error
-
-      # ========================================
-      # 20. BUILD SUMMARY
-      # ========================================
-      - name: Build summary
-        run: |
-          echo ""
-          echo "============================================================"
-          echo "  HangUpFX — Android Release Build Complete"
-          echo "============================================================"
-          echo ""
-          echo "  App:          HangUpFX"
-          echo "  Package:      ${{ env.APP_PACKAGE_NAME }}"
-          echo "  Version:      ${{ steps.version.outputs.VERSION_NAME }} (${{ steps.version.outputs.VERSION_CODE }})"
-          echo "  File:         ${{ steps.rename.outputs.AAB_FILENAME }}"
-          echo "  Size:         ${{ steps.verify.outputs.AAB_SIZE_MB }} MB"
-          echo "  SHA-256:      ${{ steps.verify.outputs.AAB_SHA256 }}"
-          echo "  Signed:       Yes (upload keystore)"
-          echo ""
-          echo "  📥 Download the AAB from the workflow artifacts above."
-          echo "  📤 Upload to Google Play Console → Production → Create release"
-          echo ""
-          echo "============================================================"
