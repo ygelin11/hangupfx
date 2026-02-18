@@ -84,18 +84,18 @@ jobs:
       # ========================================
       # 4. INSTALL NODE DEPENDENCIES
       # ========================================
+      
       - name: Install Node dependencies
         run: npm ci
 
-                  - name: Build web app (skip if no build script)
-        run: |
-          if npm run | grep -q " build"; then
-            npm run build
-          else
-            echo "No build script found in package.json; skipping web build."
-          fi
+      # ========================================
+      # 5. BUILD WEB APP (skip if no build script)
+      # ========================================
+      - name: Build web app (skip if no build script)
+        run: npm run build --if-present
         env:
           NODE_ENV: production
+
 
 
 
