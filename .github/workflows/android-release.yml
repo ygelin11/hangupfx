@@ -1,9 +1,9 @@
 name: Android Release Build
 on:
   push:
-      branches:
-        - main
-     workflow_dispatch:
+    branches:
+      - main:
+  workflow_dispatch:
         inputs:
             version_name:
         description: "Version name (e.g., 1.2.0). Leave empty to use package.json version."
