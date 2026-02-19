@@ -1,7 +1,8 @@
 name: Android Release Build
 on:
   push:
-      branches: [main]
+      branches:
+        - main
      workflow_dispatch:
         inputs:
             version_name:
