@@ -1,5 +1,5 @@
 name: Android Release Build
-on:
+"on":
   push:
       branches:
         - main
