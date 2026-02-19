@@ -1,8 +1,8 @@
 name: Android Release Build
 on:
- push:
+  push:
       branches: [main]
-       workflow_dispatch:
+     workflow_dispatch:
         inputs:
             version_name:
         description: "Version name (e.g., 1.2.0). Leave empty to use package.json version."
@@ -27,30 +27,30 @@ env:
   ANDROID_BUILD_TOOLS: "35.0.0"
   APP_PACKAGE_NAME: "com.hangupfx.app"
 jobs:
-  build-android-aab:
-    name: Build Signed AAB
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+build-android-aab:
+name: Build Signed AAB
+  runs-on: ubuntu-latest
+  timeout-minutes: 30
 
-    steps:
+  steps:
     
              
-    - name: Checkout repository
-      uses: actions/checkout@v4
+  - name: Checkout repository
+    uses: actions/checkout@v4
         
     
-    - name: Set Up JDK 17
+  - name: Set Up JDK 17
     uses: actions/setup-java@v4
     with:
       distribution: temurin
       java-version: "17"
-    - name: Set up Node.js 20
-    uses: actions/setup-node@v4
-     with:
-      node-version: "20"
-        cache: npm
-        - name: Install Node dependencies
-        run: npm ci
+  - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+       with:
+        node-version: "20"
+          cache: npm
+  - name: Install Node dependencies
+          run: npm ci
   
       
    
@@ -60,47 +60,47 @@ jobs:
        
 
       - name: Build web (skip if missing)
-        run: npm run build --if-present
-        env:
-          NODE_ENV: production
-      - name: Install Capacitor Android + ensure appId exists
-        run: |
-          npm i -D @capacitor/core @capacitor/cli @capacitor/android
-          if [ ! -f capacitor.config.json ]; then
-            echo "Creating capacitor.config.json"
-            echo '{"appId":"com.hangupfx.app","appName":"HangUpFX","webDir":"dist","bundledWebRuntime":false}' > capacitor.config.json
-          else
-            echo "Capacitor config exists"
-          fi
+      run: npm run build --if-present
+      env:
+            NODE_ENV: production
+        - name: Install Capacitor Android + ensure appId exists
+          run: |
+           npm i -D @capacitor/core @capacitor/cli @capacitor/android
+              if [ ! -f capacitor.config.json ]; then
+                echo "Creating capacitor.config.json"
+                echo '{"appId":"com.hangupfx.app","appName":"HangUpFX","webDir":"dist","bundledWebRuntime":false}' > capacitor.config.json
+              else
+                echo "Capacitor config exists"
+              fi
 
       - name: Add Capacitor Android platform
-        run: npx cap add android || true
+          run: npx cap add android || true
 
       - name: Sync Capacitor web assets
-        run: npx cap sync android
+          run: npx cap sync android
 
       - name: Decode upload keystore
-        run:  echo"${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | based64 --decode > android//app//hangupfx-upload.keystore 
+          run:  echo"${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | based64 --decode > android//app//hangupfx-upload.keystore 
           
 
       - name: Make Gradle wrapper executable
-        run: chmod +x android/gradlew
+          run: chmod +x android/gradlew
 
       - name: Build release AAB
-        working-directory: android
-        run: |
-          ./gradlew bundleRelease \
-            --no-daemon \
-            --stacktrace \
-            -Pandroid.injected.signing.store.file=$PWD/app/hangupfx-upload.keystore \
-            -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
+          working-directory: android
+          run: |
+              ./gradlew bundleRelease \
+                --no-daemon \
+                --stacktrace \
+                -Pandroid.injected.signing.store.file=$PWD/app/hangupfx-upload.keystore \
+                -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
+                -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
+                -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HangUpFX-release-aab
-          path: android/app/build/outputs/bundle/release/*.aab
-          if-no-files-found: error
+            name: HangUpFX-release-aab
+            path: android/app/build/outputs/bundle/release/*.aab
+            if-no-files-found: error
 
