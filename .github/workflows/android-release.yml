@@ -1,31 +1,9 @@
-# ============================================================
-# HangUpFX — Android Release Build (Signed AAB)
-# ============================================================
-#
-# This workflow builds a production-ready, signed Android App
-# Bundle (.AAB) for Google Play Console submission.
-#
-# Triggers:
-#   - Push to `main` branch
-#   - Manual dispatch (workflow_dispatch)
-#
-# Required GitHub Secrets:
-#   ANDROID_KEYSTORE_BASE64    — Base64-encoded upload keystore (.jks)
-#   ANDROID_KEYSTORE_PASSWORD  — Keystore password
-#   ANDROID_KEY_ALIAS          — Key alias (e.g., "hangupfx-upload")
-#   ANDROID_KEY_PASSWORD       — Key password
-#
-# Output:
-#   Signed .AAB uploaded as a downloadable workflow artifact.
-#
-# ============================================================
-  
 name: Android Release Build
-
 on:
-      push:
-            branches: [main]
-     workflow_dispatch:
+  push:
+      branches: [main]
+  workflow_dispatch:
+
         inputs:
             version_name:
         description: "Version name (e.g., 1.2.0). Leave empty to use package.json version."
