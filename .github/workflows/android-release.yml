@@ -32,7 +32,7 @@ jobs:
         run: npm ci
 
       - name: Build web (skip if missing)
-        run: npm run build --if-present
+        run: npx expo export --platform web --output-dir dist
         env:
           NODE_ENV: production
 
@@ -43,7 +43,7 @@ jobs:
         run: |
           if [ ! -f capacitor.config.json ]; then
             echo "Creating capacitor.config.json"
-            echo '{"appId":"com.example.app","appName":"HangUpFX","webDir":"build","bundledWebRuntime":false}' > capacitor.config.json
+            echo '{"appId":"com.example.app","appName":"HangUpFX","webDir":"dist","bundledWebRuntime":false}' > capacitor.config.json
           else
             echo "capacitor.config.json exists"
           fi
