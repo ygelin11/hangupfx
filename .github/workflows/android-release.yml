@@ -54,10 +54,10 @@ jobs:
           printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
 
       - name: Add Capacitor Android platform
-        run: npx cap add android 
-
-      - name: Sync Capacitor web assets
         run: npx cap sync android
+ 
+
+      
 
       
 
