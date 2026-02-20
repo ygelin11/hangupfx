@@ -73,7 +73,22 @@ jobs:
           printf "\nMYAPP_UPLOAD_STORE_PASSWORD=%s" "$ANDROID_STORE_PASSWORD" >> app/gradle.properties
           printf "\nMYAPP_UPLOAD_KEY_ALIAS=%s" "$ANDROID_KEY_ALIAS" >> app/gradle.properties
           printf "\nMYAPP_UPLOAD_KEY_PASSWORD=%s\n" "$ANDROID_KEY_PASSWORD" >> app/gradle.properties
-          ./gradlew --no-daemon bundleRelease -Pkotlin.stdlib.default.dependency=false
+                       cat > force-kotlin.gradle <<'EOF'
+          allprojects {
+              configurations.all {
+                  resolutionStrategy.eachDependency { details ->
+                      if (details.requested.group == "org.jetbrains.kotlin" &&
+                          details.requested.name.startsWith("kotlin-stdlib")) {
+                          details.useVersion "1.8.22"
+                          details.because "Avoid duplicate Kotlin stdlib classes from mixed versions"
+                      }
+                  }
+              }
+          }
+          EOF
+
+          ./gradlew --no-daemon bundleRelease -Pkotlin.stdlib.default.dependency=false -I force-kotlin.gradle
+
 
 
       - name: Upload AAB artifact
