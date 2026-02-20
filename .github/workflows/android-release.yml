@@ -51,7 +51,8 @@ jobs:
       - name: Decode upload keystore
         run: |
           mkdir -p android/app
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks- name: Add Capacitor Android platform
+          printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+
       - name: Add Capacitor Android platform
         run: npx cap add android || true
 
