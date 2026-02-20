@@ -48,16 +48,17 @@ jobs:
             echo "capacitor.config.json exists"
           fi
 
+      - name: Decode upload keystore
+        run: |
+          mkdir -p android/app
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks- name: Add Capacitor Android platform
       - name: Add Capacitor Android platform
         run: npx cap add android || true
 
       - name: Sync Capacitor web assets
         run: npx cap sync android
 
-      - name: Decode upload keystore
-        run: |
-          mkdir -p android/app
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+      
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
