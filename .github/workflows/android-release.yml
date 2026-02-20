@@ -54,7 +54,7 @@ jobs:
           printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
 
       - name: Add Capacitor Android platform
-        run: npx cap add android || true
+        run: npx cap add android 
 
       - name: Sync Capacitor web assets
         run: npx cap sync android
@@ -62,7 +62,8 @@ jobs:
       
 
       - name: Make Gradle wrapper executable
-        run: chmod +x android/gradlew
+        run: chmod +x android/gradlew || true
+
 
       - name: Build release AAB
         working-directory: android
