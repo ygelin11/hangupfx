@@ -70,19 +70,22 @@ jobs:
 
 
       - name: Build release AAB
-        
+        working-directory: android
         env:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          printf "\nMYAPP_UPLOAD_STORE_FILE=upload-keystore.jks" >> android/app/gradle.properties
+          printf "\nMYAPP_UPLOAD_STORE_FILE=upload-keystore.jks" >> app/gradle.properties
 
-          printf "\nMYAPP_UPLOAD_STORE_PASSWORD=%s" "$ANDROID_STORE_PASSWORD" >> android/app/gradle.properties
 
-          printf "\nMYAPP_UPLOAD_KEY_ALIAS=%s" "$ANDROID_KEY_ALIAS" >> android/app/gradle.properties
+          printf "\nMYAPP_UPLOAD_STORE_PASSWORD=%s" "$ANDROID_STORE_PASSWORD" >> app/gradle.properties
 
-          printf "\nMYAPP_UPLOAD_KEY_PASSWORD=%s\n" "$ANDROID_KEY_PASSWORD" >> android/app/gradle.properties
+
+          printf "\nMYAPP_UPLOAD_KEY_ALIAS=%s" "$ANDROID_KEY_ALIAS" >> app/gradle.properties
+
+          printf "\nMYAPP_UPLOAD_KEY_PASSWORD=%s\n" "$ANDROID_KEY_PASSWORD" >> app/gradle.properties
+
 
                        cat > force-kotlin.gradle <<'EOF'
           allprojects {
@@ -98,7 +101,8 @@ jobs:
           }
           EOF
 
-          ./android/gradlew --no-daemon bundleRelease -Pkotlin.stdlib.default.dependency=false -I force-kotlin.gradle
+          
+             ./gradlew --no-daemon bundleRelease -Pkotlin.stdlib.default.dependency=false -I force-kotlin.gradle
  
 
 
