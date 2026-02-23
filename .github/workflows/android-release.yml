@@ -30,13 +30,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java (JDK 21)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: gradle
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -55,6 +48,21 @@ jobs:
           rm -rf android
           npx cap add android
           npx cap sync android
+
+      - name: Set up Java (JDK 21) + Gradle cache (android/)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+          cache-dependency-path: |
+            android/**/gradle-wrapper.properties
+            android/**/build.gradle*
+            android/**/settings.gradle*
+            android/gradle/*.versions.toml
+            android/**/versions.properties
+            android/buildSrc/**/Versions.kt
+            android/buildSrc/**/Dependencies.kt
 
       - name: Decode upload keystore to android/app/upload-keystore.jks
         env:
@@ -105,21 +113,22 @@ jobs:
           s = bg.read_text(encoding="utf-8")
 
           if "keystorePropertiesFile" not in s:
-            props_loader = (
+            loader = (
               'def keystorePropertiesFile = rootProject.file("keystore.properties")\n'
               'def keystoreProperties = new Properties()\n'
               'if (keystorePropertiesFile.exists()) {\n'
               '    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n'
               '}\n\n'
             )
-            s = props_loader + s
+            s = loader + s
 
-          def has_signingconfigs(text: str) -> bool:
-            return "signingConfigs" in text and "buildTypes" in text and "signingConfig" in text
-
+          # Force storeFile to local android/app/upload-keystore.jks (prevents app/app path bugs)
           s = re.sub(r"storeFile\s+file\([^\)]*\)", 'storeFile file("upload-keystore.jks")', s)
 
-          if has_signingconfigs(s):
+          def has_release_signing(text: str) -> bool:
+            return ("signingConfigs" in text) and ("buildTypes" in text) and ("signingConfig" in text)
+
+          if has_release_signing(s):
             if re.search(r"buildTypes\s*\{[\s\S]*?release\s*\{", s) and "signingConfig signingConfigs.release" not in s:
               s = re.sub(
                 r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
@@ -129,29 +138,31 @@ jobs:
               )
             bg.write_text(s, encoding="utf-8")
             print("Patched existing signing config and ensured release uses signingConfigs.release.")
-          else:
-            m = re.search(r"\bandroid\s*\{", s)
-            if not m:
-              print("ERROR: android { } block not detected", file=sys.stderr)
-              sys.exit(1)
+            sys.exit(0)
 
+          # Inject signing configs if missing
+          m = re.search(r"\bandroid\s*\{", s)
+          if not m:
+            print("ERROR: android { } block not detected in build.gradle", file=sys.stderr)
+            sys.exit(1)
+
+          s = re.sub(
+            r"(\bandroid\s*\{\s*)",
+            r"\1\n    signingConfigs {\n        release {\n            if (keystorePropertiesFile.exists()) {\n                storeFile file(\"upload-keystore.jks\")\n                storePassword keystoreProperties['storePassword']\n                keyAlias keystoreProperties['keyAlias']\n                keyPassword keystoreProperties['keyPassword']\n            }\n        }\n    }\n",
+            s,
+            count=1
+          )
+
+          if "buildTypes" in s and "signingConfig signingConfigs.release" not in s:
             s = re.sub(
-              r"(\bandroid\s*\{\s*)",
-              r"\1\n    signingConfigs {\n        release {\n            if (keystorePropertiesFile.exists()) {\n                storeFile file(\"upload-keystore.jks\")\n                storePassword keystoreProperties['storePassword']\n                keyAlias keystoreProperties['keyAlias']\n                keyPassword keystoreProperties['keyPassword']\n            }\n        }\n    }\n",
+              r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
+              r"\1\n            signingConfig signingConfigs.release",
               s,
               count=1
             )
 
-            if "buildTypes" in s and "signingConfig signingConfigs.release" not in s:
-              s = re.sub(
-                r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
-                r"\1\n            signingConfig signingConfigs.release",
-                s,
-                count=1
-              )
-
-            bg.write_text(s, encoding="utf-8")
-            print("Injected signing config into build.gradle for CI-stable release signing.")
+          bg.write_text(s, encoding="utf-8")
+          print("Injected signing config into build.gradle for CI-stable release signing.")
           PY
 
       - name: Make Gradle wrapper executable
