@@ -20,6 +20,7 @@ env:
   NODE_VERSION: "20"
   JAVA_VERSION: "21"
   CI: "true"
+  CAP_CLI_VERSION: "7.5.0"
 
 jobs:
   build-signed-aab:
@@ -47,12 +48,11 @@ jobs:
           set -euo pipefail
           rm -rf android
 
-          # Ensure Capacitor CLI is available even if it's not in package.json
-          npx --yes @capacitor/cli cap --version
+          # NOTE: npx @capacitor/cli already runs the "cap" binary.
+          npx --yes @capacitor/cli@${CAP_CLI_VERSION} --version
 
-          # Add + sync platform
-          npx --yes @capacitor/cli cap add android
-          npx --yes @capacitor/cli cap sync android
+          npx --yes @capacitor/cli@${CAP_CLI_VERSION} add android
+          npx --yes @capacitor/cli@${CAP_CLI_VERSION} sync android
 
       - name: Set up Java (JDK 21) + Gradle cache (android/)
         uses: actions/setup-java@v4
@@ -127,7 +127,7 @@ jobs:
             )
             s = loader + s
 
-          # Force storeFile to local android/app/upload-keystore.jks (prevents app/app path bugs)
+          # Force storeFile to local android/app/upload-keystore.jks (prevents android/app/app/... bugs)
           s = re.sub(r"storeFile\s+file\([^\)]*\)", 'storeFile file("upload-keystore.jks")', s)
 
           def has_release_signing(text: str) -> bool:
