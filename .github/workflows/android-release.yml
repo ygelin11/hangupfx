@@ -57,8 +57,7 @@ jobs:
           set -euo pipefail
           python3 -c "import json,os,pathlib,sys; app_id=os.environ['CAP_APP_ID']; app_name=os.environ['CAP_APP_NAME']; webdir='dist'; idx=pathlib.Path(webdir)/'index.html'; \
           idx.exists() or (print(f'ERROR: {webdir}/index.html missing', file=sys.stderr) or sys.exit(1)); \
-          p=pathlib.Path('capacitor.config.json'); \
-          data={}; \
+          p=pathlib.Path('capacitor.config.json'); data={}; \
           data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; \
           data['appId']=app_id; data['appName']=app_name; data['webDir']=webdir; data.setdefault('bundledWebRuntime', False); \
           p.write_text(json.dumps(data, indent=2)+'\n', encoding='utf-8')"
@@ -121,9 +120,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p android
-          echo "aW1wb3J0IGphdmEudXRpbC5Qcm9wZXJ0aWVzCmltcG9ydCBqYXZhLmlvLkZpbGVJbnB1dFN0cmVhbQoKZGVmIHByb3BzRmlsZSA9IG5ldyBGaWxlKHNldHRpbmdzRGlyLCAia2V5c3RvcmUucHJvcGVydGllcyIpCmRlZiBrcyA9IG5ldyBQcm9wZXJ0aWVzKCkKaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogIHByb3BzRmlsZS53aXRoSW5wdXRTdHJlYW0geyBrcy5sb2FkKGl0KSB9Cn0KCmdyYWRsZS5hZnRlclByb2plY3QgeyBwIC0+CiAgaWYgKCFwLnBsdWdpbnMuaGFzUGx1Z2luKCJjb20uYW5kcm9pZC5hcHBsaWNhdGlvbiIpKSByZXR1cm4KICBkZWYgYW5kcm9pZEV4dCA9IHAuZXh0ZW5zaW9ucy5maW5kQnlOYW1lKCJhbmRyb2lkIikKICBpZiAoYW5kcm9pZEV4dCA9PSBudWxsKSByZXR1cm4KCiAgaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncyB7CiAgICAgIGlmIChpdC5maW5kQnlOYW1lKCJyZWxlYXNlIikgPT0gbnVsbCkgeyBjcmVhdGUoInJlbGVhc2UiKSB9CiAgICB9CiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uuc3RvcmVGaWxlID0gcC5maWxlKGtzLmdldFByb3BlcnR5KCJzdG9yZUZpbGUiLCAidXBsb2FkLWtleXN0b3JlLmprcyIpKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLnN0b3JlUGFzc3dvcmQgPSBrcy5nZXRQcm9wZXJ0eSgic3RvcmVQYXNzd29yZCIpCiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uua2V5QWxpYXMgPSBrcy5nZXRQcm9wZXJ0eSgia2V5QWxpYXMiKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLmtleVBhc3N3b3JkID0ga3MuZ2V0UHJvcGVydHkoImtleVBhc3N3b3JkIikKCiAgICBhbmRyb2lkRXh0LmJ1aWxkVHlwZXMgewogICAgICBkZWYgcmVsID0gaXQuZmluZEJ5TmFtZSgicmVsZWFzZSIpCiAgICAgIGlmIChyZWwgIT0gbnVsbCkgeyByZWwuc2lnbmluZ0NvbmZpZyA9IGFuZHJvaWRFeHQuc2lnbmluZ0NvbmZpZ3MucmVsZWFzZSB9CiAgICB9CiAgfQp9Cg==" | base64 --decode > android/ci-signing.init.gradle
+          # FIX: use gradle.startParameter.currentDir (the working dir = android/)
+          echo "aW1wb3J0IGphdmEudXRpbC5Qcm9wZXJ0aWVzCmltcG9ydCBqYXZhLmlvLkZpbGVJbnB1dFN0cmVhbQoKZGVmIHByb3BzRmlsZSA9IG5ldyBGaWxlKGdyYWRsZS5zdGFydFBhcmFtZXRlci5jdXJyZW50RGlyLCAia2V5c3RvcmUucHJvcGVydGllcyIpCmRlZiBrcyA9IG5ldyBQcm9wZXJ0aWVzKCkKaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogIHByb3BzRmlsZS53aXRoSW5wdXRTdHJlYW0geyBrcy5sb2FkKGl0KSB9Cn0KCmdyYWRsZS5hZnRlclByb2plY3QgeyBwIC0+CiAgaWYgKCFwLnBsdWdpbnMuaGFzUGx1Z2luKCJjb20uYW5kcm9pZC5hcHBsaWNhdGlvbiIpKSByZXR1cm4KICBkZWYgYW5kcm9pZEV4dCA9IHAuZXh0ZW5zaW9ucy5maW5kQnlOYW1lKCJhbmRyb2lkIikKICBpZiAoYW5kcm9pZEV4dCA9PSBudWxsKSByZXR1cm4KCiAgaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncyB7CiAgICAgIGlmIChpdC5maW5kQnlOYW1lKCJyZWxlYXNlIikgPT0gbnVsbCkgeyBjcmVhdGUoInJlbGVhc2UiKSB9CiAgICB9CiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uuc3RvcmVGaWxlID0gcC5maWxlKGtzLmdldFByb3BlcnR5KCJzdG9yZUZpbGUiLCAidXBsb2FkLWtleXN0b3JlLmprcyIpKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLnN0b3JlUGFzc3dvcmQgPSBrcy5nZXRQcm9wZXJ0eSgic3RvcmVQYXNzd29yZCIpCiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uua2V5QWxpYXMgPSBrcy5nZXRQcm9wZXJ0eSgia2V5QWxpYXMiKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLmtleVBhc3N3b3JkID0ga3MuZ2V0UHJvcGVydHkoImtleVBhc3N3b3JkIikKCiAgICBhbmRyb2lkRXh0LmJ1aWxkVHlwZXMgewogICAgICBkZWYgcmVsID0gaXQuZmluZEJ5TmFtZSgicmVsZWFzZSIpCiAgICAgIGlmIChyZWwgIT0gbnVsbCkgeyByZWwuc2lnbmluZ0NvbmZpZyA9IGFuZHJvaWRFeHQuc2lnbmluZ0NvbmZpZ3MucmVsZWFzZSB9CiAgICB9CiAgfQp9Cg==" | base64 --decode > android/ci-signing.init.gradle
           test -f android/ci-signing.init.gradle
-          echo "Init script created ✅"
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
