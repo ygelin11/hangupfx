@@ -20,7 +20,6 @@ env:
   NODE_VERSION: "20"
   JAVA_VERSION: "17"
   CI: "true"
-
   CAP_APP_ID: "com.ygelin11.hangupfx"
   CAP_APP_NAME: "HangUpFX"
 
@@ -56,29 +55,13 @@ jobs:
       - name: Ensure capacitor.config.json (locked appId + webDir)
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, os, pathlib, sys
-          app_id = os.environ["CAP_APP_ID"]
-          app_name = os.environ["CAP_APP_NAME"]
-          webdir = "dist"
-          if not (pathlib.Path(webdir) / "index.html").exists():
-            print(f"ERROR: {webdir}/index.html missing", file=sys.stderr)
-            sys.exit(1)
-
-          p = pathlib.Path("capacitor.config.json")
-          data = {}
-          if p.exists():
-            try:
-              data = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-              data = {}
-
-          data["appId"] = app_id
-          data["appName"] = app_name
-          data["webDir"] = webdir
-          data.setdefault("bundledWebRuntime", False)
-          p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-          PY
+          python3 -c "import json,os,pathlib,sys; app_id=os.environ['CAP_APP_ID']; app_name=os.environ['CAP_APP_NAME']; webdir='dist'; idx=pathlib.Path(webdir)/'index.html'; \
+          idx.exists() or (print(f'ERROR: {webdir}/index.html missing', file=sys.stderr) or sys.exit(1)); \
+          p=pathlib.Path('capacitor.config.json'); \
+          data={}; \
+          data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; \
+          data['appId']=app_id; data['appName']=app_name; data['webDir']=webdir; data.setdefault('bundledWebRuntime', False); \
+          p.write_text(json.dumps(data, indent=2)+'\n', encoding='utf-8')"
 
       - name: Recreate Capacitor Android platform
         run: |
@@ -134,40 +117,13 @@ jobs:
             "$ANDROID_KEY_ALIAS" \
             "$ANDROID_KEY_PASSWORD" > android/keystore.properties
 
-      - name: Create CI Gradle init signing script (no build.gradle edits)
+      - name: Create CI Gradle init signing script (base64 safe)
         run: |
           set -euo pipefail
-          python3 -c "from pathlib import Path; Path('android/ci-signing.init.gradle').write_text('''\
-import java.util.Properties
-import java.io.FileInputStream
-
-def propsFile = new File(settingsDir, \"keystore.properties\")
-def ks = new Properties()
-if (propsFile.exists()) {
-  propsFile.withInputStream { ks.load(it) }
-}
-
-gradle.afterProject { p ->
-  if (!p.plugins.hasPlugin(\"com.android.application\")) return
-  def androidExt = p.extensions.findByName(\"android\")
-  if (androidExt == null) return
-
-  if (propsFile.exists()) {
-    androidExt.signingConfigs {
-      if (it.findByName(\"release\") == null) { create(\"release\") }
-    }
-    androidExt.signingConfigs.release.storeFile = p.file(ks.getProperty(\"storeFile\", \"upload-keystore.jks\"))
-    androidExt.signingConfigs.release.storePassword = ks.getProperty(\"storePassword\")
-    androidExt.signingConfigs.release.keyAlias = ks.getProperty(\"keyAlias\")
-    androidExt.signingConfigs.release.keyPassword = ks.getProperty(\"keyPassword\")
-
-    androidExt.buildTypes {
-      def rel = it.findByName(\"release\")
-      if (rel != null) { rel.signingConfig = androidExt.signingConfigs.release }
-    }
-  }
-}
-''', encoding='utf-8')"
+          mkdir -p android
+          echo "aW1wb3J0IGphdmEudXRpbC5Qcm9wZXJ0aWVzCmltcG9ydCBqYXZhLmlvLkZpbGVJbnB1dFN0cmVhbQoKZGVmIHByb3BzRmlsZSA9IG5ldyBGaWxlKHNldHRpbmdzRGlyLCAia2V5c3RvcmUucHJvcGVydGllcyIpCmRlZiBrcyA9IG5ldyBQcm9wZXJ0aWVzKCkKaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogIHByb3BzRmlsZS53aXRoSW5wdXRTdHJlYW0geyBrcy5sb2FkKGl0KSB9Cn0KCmdyYWRsZS5hZnRlclByb2plY3QgeyBwIC0+CiAgaWYgKCFwLnBsdWdpbnMuaGFzUGx1Z2luKCJjb20uYW5kcm9pZC5hcHBsaWNhdGlvbiIpKSByZXR1cm4KICBkZWYgYW5kcm9pZEV4dCA9IHAuZXh0ZW5zaW9ucy5maW5kQnlOYW1lKCJhbmRyb2lkIikKICBpZiAoYW5kcm9pZEV4dCA9PSBudWxsKSByZXR1cm4KCiAgaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncyB7CiAgICAgIGlmIChpdC5maW5kQnlOYW1lKCJyZWxlYXNlIikgPT0gbnVsbCkgeyBjcmVhdGUoInJlbGVhc2UiKSB9CiAgICB9CiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uuc3RvcmVGaWxlID0gcC5maWxlKGtzLmdldFByb3BlcnR5KCJzdG9yZUZpbGUiLCAidXBsb2FkLWtleXN0b3JlLmprcyIpKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLnN0b3JlUGFzc3dvcmQgPSBrcy5nZXRQcm9wZXJ0eSgic3RvcmVQYXNzd29yZCIpCiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uua2V5QWxpYXMgPSBrcy5nZXRQcm9wZXJ0eSgia2V5QWxpYXMiKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLmtleVBhc3N3b3JkID0ga3MuZ2V0UHJvcGVydHkoImtleVBhc3N3b3JkIikKCiAgICBhbmRyb2lkRXh0LmJ1aWxkVHlwZXMgewogICAgICBkZWYgcmVsID0gaXQuZmluZEJ5TmFtZSgicmVsZWFzZSIpCiAgICAgIGlmIChyZWwgIT0gbnVsbCkgeyByZWwuc2lnbmluZ0NvbmZpZyA9IGFuZHJvaWRFeHQuc2lnbmluZ0NvbmZpZ3MucmVsZWFzZSB9CiAgICB9CiAgfQp9Cg==" | base64 --decode > android/ci-signing.init.gradle
+          test -f android/ci-signing.init.gradle
+          echo "Init script created ✅"
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
