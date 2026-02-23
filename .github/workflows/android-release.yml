@@ -20,7 +20,7 @@ env:
   NODE_VERSION: "20"
   JAVA_VERSION: "21"
   CI: "true"
-  # Set these to your real values (safe defaults here so CI can bootstrap)
+  # IMPORTANT: set this to your real Play Console package name
   CAP_APP_ID: "com.example.hangupfx"
   CAP_APP_NAME: "HangUpFX"
 
@@ -42,56 +42,53 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Ensure Capacitor config exists and has appId
+      - name: Ensure capacitor.config.json exists and has appId/appName/webDir (no heredoc)
         run: |
           set -euo pipefail
-
-          # Create capacitor.config.json if missing
-          if [ ! -f capacitor.config.json ]; then
-            cat > capacitor.config.json <<'EOF'
-{
-  "appId": "__APP_ID__",
-  "appName": "__APP_NAME__",
-  "webDir": "dist",
-  "bundledWebRuntime": false
-}
-EOF
-          fi
-
-          # Ensure appId/appName exist (patch in place)
           python3 - <<'PY'
-          import json, os, pathlib, sys
-
-          p = pathlib.Path("capacitor.config.json")
-          data = json.loads(p.read_text(encoding="utf-8"))
+          import json, os, pathlib
 
           app_id = os.environ.get("CAP_APP_ID", "com.example.hangupfx")
           app_name = os.environ.get("CAP_APP_NAME", "HangUpFX")
 
-          # If placeholders exist, replace them
-          if data.get("appId") in (None, "", "__APP_ID__"):
+          p = pathlib.Path("capacitor.config.json")
+
+          if p.exists():
+            try:
+              data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+              data = {}
+          else:
+            data = {}
+
+          # Ensure required fields
+          if not data.get("appId"):
             data["appId"] = app_id
-          if data.get("appName") in (None, "", "__APP_NAME__"):
+          if not data.get("appName"):
             data["appName"] = app_name
 
-          # Ensure webDir exists key (Expo web build output varies; dist is common)
+          # Web output dir: keep existing if present, else default to "dist"
           if not data.get("webDir"):
             data["webDir"] = "dist"
 
+          # Good default for modern setups
+          if "bundledWebRuntime" not in data:
+            data["bundledWebRuntime"] = False
+
           p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-          print("capacitor.config.json ensured with appId/appName/webDir")
-          print(f"appId={data['appId']}")
-          print(f"appName={data['appName']}")
-          print(f"webDir={data['webDir']}")
+
+          print("capacitor.config.json ready:")
+          print(f"  appId={data['appId']}")
+          print(f"  appName={data['appName']}")
+          print(f"  webDir={data['webDir']}")
           PY
 
       - name: Build web (if present)
         run: npm run build --if-present
 
-      - name: Ensure Capacitor Android dependencies exist (CI-stable)
+      - name: Ensure Capacitor deps exist (CI-stable)
         run: |
           set -euo pipefail
-          # Install locally for this CI run (does not commit anything back)
           npm install --no-save @capacitor/cli @capacitor/core @capacitor/android
 
       - name: Recreate Capacitor Android platform
@@ -131,7 +128,7 @@ EOF
           test -f android/app/upload-keystore.jks
           ls -la android/app/upload-keystore.jks
 
-      - name: Write keystore.properties for Gradle (safe)
+      - name: Write keystore.properties for Gradle (no heredoc)
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -165,6 +162,7 @@ EOF
 
           s = bg.read_text(encoding="utf-8")
 
+          # Add keystore loader if missing
           if "keystorePropertiesFile" not in s:
             loader = (
               'def keystorePropertiesFile = rootProject.file("keystore.properties")\n'
@@ -175,13 +173,11 @@ EOF
             )
             s = loader + s
 
-          # Force storeFile to be local to android/app/
+          # Force storeFile to be relative to android/app/
           s = re.sub(r"storeFile\s+file\([^\)]*\)", 'storeFile file("upload-keystore.jks")', s)
 
-          def has_release_signing(text: str) -> bool:
-            return ("signingConfigs" in text) and ("buildTypes" in text) and ("signingConfig" in text)
-
-          if has_release_signing(s):
+          # Ensure release build uses signing config
+          if "signingConfigs" in s and "buildTypes" in s:
             if re.search(r"buildTypes\s*\{[\s\S]*?release\s*\{", s) and "signingConfig signingConfigs.release" not in s:
               s = re.sub(
                 r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
@@ -190,9 +186,10 @@ EOF
                 count=1
               )
             bg.write_text(s, encoding="utf-8")
-            print("Patched existing signing config and ensured release uses signingConfigs.release.")
+            print("Signing config patched/ensured.")
             sys.exit(0)
 
+          # If signingConfigs missing entirely, inject inside android { }
           m = re.search(r"\bandroid\s*\{", s)
           if not m:
             print("ERROR: android { } block not detected in build.gradle", file=sys.stderr)
@@ -214,7 +211,7 @@ EOF
             )
 
           bg.write_text(s, encoding="utf-8")
-          print("Injected signing config into build.gradle for CI-stable release signing.")
+          print("Signing config injected.")
           PY
 
       - name: Make Gradle wrapper executable
@@ -245,10 +242,3 @@ EOF
           name: app-release-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
-
-      - name: Upload mapping (if present)
-        uses: actions/upload-artifact@v4
-        with:
-          name: proguard-mapping
-          path: android/app/build/outputs/mapping/release/mapping.txt
-          if-no-files-found: ignore
