@@ -18,7 +18,7 @@ concurrency:
 
 env:
   NODE_VERSION: "20"
-  JAVA_VERSION: "17"
+  JAVA_VERSION: "21"
   CI: "true"
 
   CAP_APP_ID: "com.ygelin11.hangupfx"
@@ -78,9 +78,9 @@ jobs:
           KOTLIN_STDLIB_VERSION: ${{ env.KOTLIN_STDLIB_VERSION }}
         run: |
           set -euo pipefail
-          python3 -c "from pathlib import Path; import os; \
+          python3 -c "from pathlib import Path; import os, sys; \
           p=Path('android/build.gradle'); \
-          p.exists() or (_ for _ in ()).throw(SystemExit('ERROR: android/build.gradle not found')); \
+          p.exists() or (print('ERROR: android/build.gradle not found', file=sys.stderr) or sys.exit(1)); \
           s=p.read_text(encoding='utf-8'); \
           marker='// CI_KOTLIN_DUPLICATE_FIX'; \
           fix=(f\"\\n{marker}\\n\" \
@@ -98,7 +98,7 @@ jobs:
                f\"}}\\n\"); \
           p.write_text(s if marker in s else (s+fix), encoding='utf-8')"
 
-      - name: Set up Java (JDK 17) + Gradle cache (android/)
+      - name: Set up Java (JDK 21) + Gradle cache (android/)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -158,6 +158,7 @@ jobs:
             exit 1
           fi
 
+          echo "JAVA_HOME=$JAVA_HOME"
           ./gradlew --version
 
           set +e
