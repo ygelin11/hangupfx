@@ -20,6 +20,8 @@ env:
   NODE_VERSION: "20"
   JAVA_VERSION: "17"
   CI: "true"
+
+  # Locked package / app name
   CAP_APP_ID: "com.ygelin11.hangupfx"
   CAP_APP_NAME: "HangUpFX"
 
@@ -55,8 +57,8 @@ jobs:
       - name: Ensure capacitor.config.json (locked appId + webDir)
         run: |
           set -euo pipefail
-          python3 -c "import json,os,pathlib,sys; app_id=os.environ['CAP_APP_ID']; app_name=os.environ['CAP_APP_NAME']; webdir='dist'; idx=pathlib.Path(webdir)/'index.html'; \
-          idx.exists() or (print(f'ERROR: {webdir}/index.html missing', file=sys.stderr) or sys.exit(1)); \
+          python3 -c "import json,os,pathlib,sys; app_id=os.environ['CAP_APP_ID']; app_name=os.environ['CAP_APP_NAME']; webdir='dist'; \
+          idx=pathlib.Path(webdir)/'index.html'; idx.exists() or (print(f'ERROR: {webdir}/index.html missing', file=sys.stderr) or sys.exit(1)); \
           p=pathlib.Path('capacitor.config.json'); data={}; \
           data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; \
           data['appId']=app_id; data['appName']=app_name; data['webDir']=webdir; data.setdefault('bundledWebRuntime', False); \
@@ -91,50 +93,53 @@ jobs:
           set -o pipefail
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Decode upload keystore to android/app/upload-keystore.jks
+      - name: Decode upload keystore (android/app/upload-keystore.jks)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          test -n "${ANDROID_KEYSTORE_BASE64:-}"
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "Missing secret ANDROID_KEYSTORE_BASE64" >&2
+            exit 1
+          fi
           mkdir -p android/app
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           test -f android/app/upload-keystore.jks
+          ls -la android/app/upload-keystore.jks
 
-      - name: Write keystore.properties for Gradle (android/keystore.properties)
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      - name: Build Signed Release AAB (injected signing)
+        working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "${ANDROID_KEYSTORE_PASSWORD:-}"
-          test -n "${ANDROID_KEY_ALIAS:-}"
-          test -n "${ANDROID_KEY_PASSWORD:-}"
-          printf "storeFile=upload-keystore.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n" \
-            "$ANDROID_KEYSTORE_PASSWORD" \
-            "$ANDROID_KEY_ALIAS" \
-            "$ANDROID_KEY_PASSWORD" > android/keystore.properties
 
-      - name: Create CI Gradle init signing script (base64 safe)
-        run: |
-          set -euo pipefail
-          mkdir -p android
-          # FIX: use gradle.startParameter.currentDir (the working dir = android/)
-          echo "aW1wb3J0IGphdmEudXRpbC5Qcm9wZXJ0aWVzCmltcG9ydCBqYXZhLmlvLkZpbGVJbnB1dFN0cmVhbQoKZGVmIHByb3BzRmlsZSA9IG5ldyBGaWxlKGdyYWRsZS5zdGFydFBhcmFtZXRlci5jdXJyZW50RGlyLCAia2V5c3RvcmUucHJvcGVydGllcyIpCmRlZiBrcyA9IG5ldyBQcm9wZXJ0aWVzKCkKaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogIHByb3BzRmlsZS53aXRoSW5wdXRTdHJlYW0geyBrcy5sb2FkKGl0KSB9Cn0KCmdyYWRsZS5hZnRlclByb2plY3QgeyBwIC0+CiAgaWYgKCFwLnBsdWdpbnMuaGFzUGx1Z2luKCJjb20uYW5kcm9pZC5hcHBsaWNhdGlvbiIpKSByZXR1cm4KICBkZWYgYW5kcm9pZEV4dCA9IHAuZXh0ZW5zaW9ucy5maW5kQnlOYW1lKCJhbmRyb2lkIikKICBpZiAoYW5kcm9pZEV4dCA9PSBudWxsKSByZXR1cm4KCiAgaWYgKHByb3BzRmlsZS5leGlzdHMoKSkgewogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncyB7CiAgICAgIGlmIChpdC5maW5kQnlOYW1lKCJyZWxlYXNlIikgPT0gbnVsbCkgeyBjcmVhdGUoInJlbGVhc2UiKSB9CiAgICB9CiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uuc3RvcmVGaWxlID0gcC5maWxlKGtzLmdldFByb3BlcnR5KCJzdG9yZUZpbGUiLCAidXBsb2FkLWtleXN0b3JlLmprcyIpKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLnN0b3JlUGFzc3dvcmQgPSBrcy5nZXRQcm9wZXJ0eSgic3RvcmVQYXNzd29yZCIpCiAgICBhbmRyb2lkRXh0LnNpZ25pbmdDb25maWdzLnJlbGVhc2Uua2V5QWxpYXMgPSBrcy5nZXRQcm9wZXJ0eSgia2V5QWxpYXMiKQogICAgYW5kcm9pZEV4dC5zaWduaW5nQ29uZmlncy5yZWxlYXNlLmtleVBhc3N3b3JkID0ga3MuZ2V0UHJvcGVydHkoImtleVBhc3N3b3JkIikKCiAgICBhbmRyb2lkRXh0LmJ1aWxkVHlwZXMgewogICAgICBkZWYgcmVsID0gaXQuZmluZEJ5TmFtZSgicmVsZWFzZSIpCiAgICAgIGlmIChyZWwgIT0gbnVsbCkgeyByZWwuc2lnbmluZ0NvbmZpZyA9IGFuZHJvaWRFeHQuc2lnbmluZ0NvbmZpZ3MucmVsZWFzZSB9CiAgICB9CiAgfQp9Cg==" | base64 --decode > android/ci-signing.init.gradle
-          test -f android/ci-signing.init.gradle
+          if [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ] || [ -z "${ANDROID_KEY_ALIAS:-}" ] || [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then
+            echo "Missing one or more signing secrets (password/alias/key password)" >&2
+            exit 1
+          fi
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x android/gradlew
+          STORE_FILE="${GITHUB_WORKSPACE}/android/app/upload-keystore.jks"
+          if [ ! -f "$STORE_FILE" ]; then
+            echo "Keystore missing at $STORE_FILE" >&2
+            ls -la "${GITHUB_WORKSPACE}/android/app" || true
+            exit 1
+          fi
 
-      - name: Build Signed Release AAB (capture log + show tail on failure)
-        working-directory: android
-        run: |
-          set -euo pipefail
           ./gradlew --version
 
           set +e
-          ./gradlew -I ci-signing.init.gradle --no-daemon --stacktrace --info clean :app:bundleRelease 2>&1 | tee ../gradle-build.log
+          ./gradlew --no-daemon --stacktrace --info clean :app:bundleRelease \
+            -Pandroid.injected.signing.store.file="$STORE_FILE" \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD" \
+            2>&1 | tee ../gradle-build.log
           STATUS=${PIPESTATUS[0]}
           set -e
 
@@ -145,6 +150,8 @@ jobs:
             echo "==================================================================="
             exit "$STATUS"
           fi
+
+          ls -la app/build/outputs/bundle/release || true
 
       - name: Upload Gradle log (always)
         if: always()
@@ -158,7 +165,11 @@ jobs:
         run: |
           set -euo pipefail
           AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
-          test -f "$AAB_PATH"
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "ERROR: AAB not found at $AAB_PATH" >&2
+            find android/app/build/outputs -maxdepth 6 -type f -name "*.aab" -print || true
+            exit 1
+          fi
           jarsigner -verify -verbose -certs "$AAB_PATH"
 
       - name: Upload AAB artifact
