@@ -21,9 +21,11 @@ env:
   JAVA_VERSION: "17"
   CI: "true"
 
-  # Locked package / app name
   CAP_APP_ID: "com.ygelin11.hangupfx"
   CAP_APP_NAME: "HangUpFX"
+
+  # Kotlin alignment to stop DuplicateClasses errors
+  KOTLIN_STDLIB_VERSION: "1.8.22"
 
 jobs:
   build-signed-aab:
@@ -70,6 +72,31 @@ jobs:
           rm -rf android
           npx cap add android
           npx cap sync android
+
+      - name: Patch Gradle to fix Kotlin duplicate classes (force stdlib + exclude jdk7/jdk8)
+        env:
+          KOTLIN_STDLIB_VERSION: ${{ env.KOTLIN_STDLIB_VERSION }}
+        run: |
+          set -euo pipefail
+          python3 -c "from pathlib import Path; import os; \
+          p=Path('android/build.gradle'); \
+          p.exists() or (_ for _ in ()).throw(SystemExit('ERROR: android/build.gradle not found')); \
+          s=p.read_text(encoding='utf-8'); \
+          marker='// CI_KOTLIN_DUPLICATE_FIX'; \
+          fix=(f\"\\n{marker}\\n\" \
+               f\"allprojects {{\\n\" \
+               f\"  configurations.all {{\\n\" \
+               f\"    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'\\n\" \
+               f\"    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'\\n\" \
+               f\"    resolutionStrategy.eachDependency {{ details ->\\n\" \
+               f\"      if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name.startsWith('kotlin-stdlib')) {{\\n\" \
+               f\"        details.useVersion('{os.environ['KOTLIN_STDLIB_VERSION']}')\\n\" \
+               f\"        details.because('CI: align Kotlin stdlib to avoid duplicate classes')\\n\" \
+               f\"      }}\\n\" \
+               f\"    }}\\n\" \
+               f\"  }}\\n\" \
+               f\"}}\\n\"); \
+          p.write_text(s if marker in s else (s+fix), encoding='utf-8')"
 
       - name: Set up Java (JDK 17) + Gradle cache (android/)
         uses: actions/setup-java@v4
