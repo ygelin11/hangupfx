@@ -21,7 +21,6 @@ env:
   JAVA_VERSION: "17"
   CI: "true"
 
-  # LOCKED forever (matches Play Console)
   CAP_APP_ID: "com.ygelin11.hangupfx"
   CAP_APP_NAME: "HangUpFX"
 
@@ -53,7 +52,6 @@ jobs:
           set -euo pipefail
           npx --yes expo export --platform web --output-dir dist
           test -f dist/index.html
-          echo "dist/index.html exists ✅"
 
       - name: Ensure capacitor.config.json (locked appId + webDir)
         run: |
@@ -80,7 +78,6 @@ jobs:
           data["webDir"] = webdir
           data.setdefault("bundledWebRuntime", False)
           p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-          print("capacitor.config.json ready:", data["appId"], data["webDir"])
           PY
 
       - name: Recreate Capacitor Android platform
@@ -107,26 +104,20 @@ jobs:
       - name: Install Android SDK packages (API 34) + accept licenses
         run: |
           set -euo pipefail
-          # Avoid broken pipe failing the step
           set +o pipefail
           yes | sdkmanager --licenses >/dev/null || true
           set -o pipefail
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-          echo "Android SDK ready ✅"
 
       - name: Decode upload keystore to android/app/upload-keystore.jks
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
-            echo "Missing secret ANDROID_KEYSTORE_BASE64" >&2
-            exit 1
-          fi
+          test -n "${ANDROID_KEYSTORE_BASE64:-}"
           mkdir -p android/app
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           test -f android/app/upload-keystore.jks
-          ls -la android/app/upload-keystore.jks
 
       - name: Write keystore.properties for Gradle (android/keystore.properties)
         env:
@@ -135,57 +126,48 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ] || [ -z "${ANDROID_KEY_ALIAS:-}" ] || [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then
-            echo "Missing one or more signing secrets" >&2
-            exit 1
-          fi
+          test -n "${ANDROID_KEYSTORE_PASSWORD:-}"
+          test -n "${ANDROID_KEY_ALIAS:-}"
+          test -n "${ANDROID_KEY_PASSWORD:-}"
           printf "storeFile=upload-keystore.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n" \
             "$ANDROID_KEYSTORE_PASSWORD" \
             "$ANDROID_KEY_ALIAS" \
             "$ANDROID_KEY_PASSWORD" > android/keystore.properties
 
-          sed -e 's/storePassword=.*/storePassword=***REDACTED***/' \
-              -e 's/keyPassword=.*/keyPassword=***REDACTED***/' android/keystore.properties
-
-      - name: Create CI signing init script (no build.gradle edits)
+      - name: Create CI Gradle init signing script (no build.gradle edits)
         run: |
           set -euo pipefail
-          # This init script runs for all projects; when it sees the app module, it wires release signing.
-          # IMPORTANT: storeFile is relative to the app module dir (android/app), so "upload-keystore.jks" matches the decoded path.
-          printf '%s\n' \
-"import java.util.Properties" \
-"import java.io.FileInputStream" \
-"" \
-"def propsFile = new File(settingsDir, 'keystore.properties')" \
-"def ks = new Properties()" \
-"if (propsFile.exists()) {" \
-"  propsFile.withInputStream { ks.load(it) }" \
-"}" \
-"" \
-"gradle.afterProject { p ->" \
-"  if (!p.plugins.hasPlugin('com.android.application')) return" \
-"  def androidExt = p.extensions.findByName('android')" \
-"  if (androidExt == null) return" \
-"" \
-"  if (propsFile.exists()) {" \
-"    androidExt.signingConfigs { " \
-"      if (it.findByName('release') == null) { create('release') }" \
-"    }" \
-"    androidExt.signingConfigs.release.storeFile = p.file(ks.getProperty('storeFile', 'upload-keystore.jks'))" \
-"    androidExt.signingConfigs.release.storePassword = ks.getProperty('storePassword')" \
-"    androidExt.signingConfigs.release.keyAlias = ks.getProperty('keyAlias')" \
-"    androidExt.signingConfigs.release.keyPassword = ks.getProperty('keyPassword')" \
-"" \
-"    androidExt.buildTypes { " \
-"      def rel = it.findByName('release')" \
-"      if (rel != null) { rel.signingConfig = androidExt.signingConfigs.release }" \
-"    }" \
-"  }" \
-"}" \
-> android/ci-signing.init.gradle
+          python3 -c "from pathlib import Path; Path('android/ci-signing.init.gradle').write_text('''\
+import java.util.Properties
+import java.io.FileInputStream
 
-          echo "Created android/ci-signing.init.gradle"
-          ls -la android/ci-signing.init.gradle
+def propsFile = new File(settingsDir, \"keystore.properties\")
+def ks = new Properties()
+if (propsFile.exists()) {
+  propsFile.withInputStream { ks.load(it) }
+}
+
+gradle.afterProject { p ->
+  if (!p.plugins.hasPlugin(\"com.android.application\")) return
+  def androidExt = p.extensions.findByName(\"android\")
+  if (androidExt == null) return
+
+  if (propsFile.exists()) {
+    androidExt.signingConfigs {
+      if (it.findByName(\"release\") == null) { create(\"release\") }
+    }
+    androidExt.signingConfigs.release.storeFile = p.file(ks.getProperty(\"storeFile\", \"upload-keystore.jks\"))
+    androidExt.signingConfigs.release.storePassword = ks.getProperty(\"storePassword\")
+    androidExt.signingConfigs.release.keyAlias = ks.getProperty(\"keyAlias\")
+    androidExt.signingConfigs.release.keyPassword = ks.getProperty(\"keyPassword\")
+
+    androidExt.buildTypes {
+      def rel = it.findByName(\"release\")
+      if (rel != null) { rel.signingConfig = androidExt.signingConfigs.release }
+    }
+  }
+}
+''', encoding='utf-8')"
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
@@ -209,8 +191,6 @@ jobs:
             exit "$STATUS"
           fi
 
-          ls -la app/build/outputs/bundle/release || true
-
       - name: Upload Gradle log (always)
         if: always()
         uses: actions/upload-artifact@v4
@@ -223,12 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
-          if [ ! -f "$AAB_PATH" ]; then
-            echo "ERROR: AAB not found at $AAB_PATH" >&2
-            find android/app/build/outputs -maxdepth 6 -type f -name "*.aab" -print || true
-            exit 1
-          fi
-          echo "Verifying signature on: $AAB_PATH"
+          test -f "$AAB_PATH"
           jarsigner -verify -verbose -certs "$AAB_PATH"
 
       - name: Upload AAB artifact
@@ -237,10 +212,3 @@ jobs:
           name: app-release-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
-
-      - name: Upload mapping (if present)
-        uses: actions/upload-artifact@v4
-        with:
-          name: proguard-mapping
-          path: android/app/build/outputs/mapping/release/mapping.txt
-          if-no-files-found: ignore
