@@ -42,12 +42,17 @@ jobs:
       - name: Build web (if present)
         run: npm run build --if-present
 
-      - name: Recreate Capacitor Android platform
+      - name: Recreate Capacitor Android platform (deterministic CLI)
         run: |
           set -euo pipefail
           rm -rf android
-          npx cap add android
-          npx cap sync android
+
+          # Ensure Capacitor CLI is available even if it's not in package.json
+          npx --yes @capacitor/cli cap --version
+
+          # Add + sync platform
+          npx --yes @capacitor/cli cap add android
+          npx --yes @capacitor/cli cap sync android
 
       - name: Set up Java (JDK 21) + Gradle cache (android/)
         uses: actions/setup-java@v4
@@ -140,7 +145,6 @@ jobs:
             print("Patched existing signing config and ensured release uses signingConfigs.release.")
             sys.exit(0)
 
-          # Inject signing configs if missing
           m = re.search(r"\bandroid\s*\{", s)
           if not m:
             print("ERROR: android { } block not detected in build.gradle", file=sys.stderr)
@@ -181,7 +185,7 @@ jobs:
           AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
           if [ ! -f "$AAB_PATH" ]; then
             echo "ERROR: AAB not found at $AAB_PATH" >&2
-            find android/app/build/outputs -maxdepth 5 -type f -name "*.aab" -print || true
+            find android/app/build/outputs -maxdepth 6 -type f -name "*.aab" -print || true
             exit 1
           fi
           echo "Verifying signature on: $AAB_PATH"
