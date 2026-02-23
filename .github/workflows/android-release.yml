@@ -20,7 +20,9 @@ env:
   NODE_VERSION: "20"
   JAVA_VERSION: "21"
   CI: "true"
-  CAP_CLI_VERSION: "7.5.0"
+  # Set these to your real values (safe defaults here so CI can bootstrap)
+  CAP_APP_ID: "com.example.hangupfx"
+  CAP_APP_NAME: "HangUpFX"
 
 jobs:
   build-signed-aab:
@@ -40,19 +42,65 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ensure Capacitor config exists and has appId
+        run: |
+          set -euo pipefail
+
+          # Create capacitor.config.json if missing
+          if [ ! -f capacitor.config.json ]; then
+            cat > capacitor.config.json <<'EOF'
+{
+  "appId": "__APP_ID__",
+  "appName": "__APP_NAME__",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
+EOF
+          fi
+
+          # Ensure appId/appName exist (patch in place)
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+
+          p = pathlib.Path("capacitor.config.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+
+          app_id = os.environ.get("CAP_APP_ID", "com.example.hangupfx")
+          app_name = os.environ.get("CAP_APP_NAME", "HangUpFX")
+
+          # If placeholders exist, replace them
+          if data.get("appId") in (None, "", "__APP_ID__"):
+            data["appId"] = app_id
+          if data.get("appName") in (None, "", "__APP_NAME__"):
+            data["appName"] = app_name
+
+          # Ensure webDir exists key (Expo web build output varies; dist is common)
+          if not data.get("webDir"):
+            data["webDir"] = "dist"
+
+          p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          print("capacitor.config.json ensured with appId/appName/webDir")
+          print(f"appId={data['appId']}")
+          print(f"appName={data['appName']}")
+          print(f"webDir={data['webDir']}")
+          PY
+
       - name: Build web (if present)
         run: npm run build --if-present
 
-      - name: Recreate Capacitor Android platform (deterministic CLI)
+      - name: Ensure Capacitor Android dependencies exist (CI-stable)
+        run: |
+          set -euo pipefail
+          # Install locally for this CI run (does not commit anything back)
+          npm install --no-save @capacitor/cli @capacitor/core @capacitor/android
+
+      - name: Recreate Capacitor Android platform
         run: |
           set -euo pipefail
           rm -rf android
-
-          # NOTE: npx @capacitor/cli already runs the "cap" binary.
-          npx --yes @capacitor/cli@${CAP_CLI_VERSION} --version
-
-          npx --yes @capacitor/cli@${CAP_CLI_VERSION} add android
-          npx --yes @capacitor/cli@${CAP_CLI_VERSION} sync android
+          npx cap --version
+          npx cap add android
+          npx cap sync android
 
       - name: Set up Java (JDK 21) + Gradle cache (android/)
         uses: actions/setup-java@v4
@@ -127,7 +175,7 @@ jobs:
             )
             s = loader + s
 
-          # Force storeFile to local android/app/upload-keystore.jks (prevents android/app/app/... bugs)
+          # Force storeFile to be local to android/app/
           s = re.sub(r"storeFile\s+file\([^\)]*\)", 'storeFile file("upload-keystore.jks")', s)
 
           def has_release_signing(text: str) -> bool:
