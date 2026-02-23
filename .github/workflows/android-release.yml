@@ -1,52 +1,50 @@
-name: Android Release Build
+name: Android Release (Signed AAB)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  JAVA_VERSION: "21"
+  CI: "true"
 
 jobs:
-  build-android-aab:
-    name: Build Signed AAB
+  build-signed-aab:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up Java (JDK 21)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
 
-      - name: Set up Node.js 20
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Install Node dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build web (Expo export to dist)
-        run: npx expo export --platform web --output-dir dist
-        env:
-          NODE_ENV: production
-
-      - name: Install Capacitor (CLI + Android)
-        run: npm i -D @capacitor/core @capacitor/cli @capacitor/android
-
-      - name: Ensure capacitor.config.json exists (minimal)
-        run: |
-          if [ ! -f capacitor.config.json ]; then
-            echo "Creating capacitor.config.json"
-            echo '{"appId":"com.example.app","appName":"HangUpFX","webDir":"dist","bundledWebRuntime":false}' > capacitor.config.json
-          else
-            echo "capacitor.config.json exists"
-          fi
+      - name: Build web (if present)
+        run: npm run build --if-present
 
       - name: Recreate Capacitor Android platform
         run: |
@@ -54,56 +52,175 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: Decode upload keystore
+      - name: Decode upload keystore to android/app/upload-keystore.jks
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Missing secret ANDROID_KEYSTORE_BASE64" >&2
+            exit 1
+          fi
           mkdir -p android/app
-          printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           ls -la android/app/upload-keystore.jks
 
-      - name: Make Gradle wrapper executable
-        run: |
-          chmod +x android/gradlew
-
-      - name: Build SIGNED release AAB
-        working-directory: android
+      - name: Write keystore.properties for Gradle
         env:
-          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # Force Kotlin stdlib single version to avoid duplicate classes
-          cat > force-kotlin.gradle <<'EOF'
-          allprojects {
-            configurations.all {
-              resolutionStrategy.eachDependency { details ->
-                if (details.requested.group == "org.jetbrains.kotlin" &&
-                    details.requested.name.startsWith("kotlin-stdlib")) {
-                  details.useVersion "1.8.22"
-                  details.because "Avoid duplicate Kotlin stdlib classes from mixed versions"
-                }
-              }
-            }
-          }
-          EOF
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Missing one or more signing secrets: ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD" >&2
+            exit 1
+          fi
 
-          # Build with injected signing so Play Console recognizes signature
-          ./gradlew --no-daemon bundleRelease \
-            -Pkotlin.stdlib.default.dependency=false \
-            -I force-kotlin.gradle \
-            -Pandroid.injected.signing.store.file=app/upload-keystore.jks \
-            -Pandroid.injected.signing.store.password="$ANDROID_STORE_PASSWORD" \
-            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
+          cat > android/keystore.properties <<EOF
+storeFile=upload-keystore.jks
+storePassword=${ANDROID_KEYSTORE_PASSWORD}
+keyAlias=${ANDROID_KEY_ALIAS}
+keyPassword=${ANDROID_KEY_PASSWORD}
+EOF
+
+          echo "keystore.properties created at android/keystore.properties"
+          sed -e 's/storePassword=.*/storePassword=***REDACTED***/' \
+              -e 's/keyPassword=.*/keyPassword=***REDACTED***/' android/keystore.properties
+
+      - name: Force release signing config (no app/app path issues)
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          bg = pathlib.Path("android/app/build.gradle")
+          if not bg.exists():
+            print("ERROR: android/app/build.gradle not found (is this a standard Capacitor/Gradle Groovy project?)", file=sys.stderr)
+            sys.exit(1)
+
+          s = bg.read_text(encoding="utf-8")
+
+          # Ensure we can read keystore.properties from android/keystore.properties and point storeFile to android/app/upload-keystore.jks
+          signing_block = r"""
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile file("upload-keystore.jks")
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+}
+""".strip("\n")
+
+          # Helper: insert signing config safely
+          def has_signingconfigs(text: str) -> bool:
+            return "signingConfigs" in text and "buildTypes" in text and "signingConfig" in text
+
+          # If file already has signing configs, we patch the storeFile line to be exactly file("upload-keystore.jks")
+          if has_signingconfigs(s):
+            # Replace common bad/absolute paths and app/app mistakes
+            s2 = re.sub(
+              r"storeFile\s+file\([^\)]*\)",
+              'storeFile file("upload-keystore.jks")',
+              s
+            )
+
+            # Ensure release buildType points to signingConfigs.release (if missing)
+            if re.search(r"buildTypes\s*\{[\s\S]*?release\s*\{", s2) and "signingConfig signingConfigs.release" not in s2:
+              s2 = re.sub(
+                r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
+                r"\1\n            signingConfig signingConfigs.release",
+                s2,
+                count=1
+              )
+
+            bg.write_text(s2, encoding="utf-8")
+            print("Patched existing signing config to use upload-keystore.jks and ensured release buildType uses it.")
+          else:
+            # Insert the block near the end. This is heavy-handed but CI-stable for regenerated android/.
+            # If android { } exists, inject inside it; otherwise append.
+            m = re.search(r"\bandroid\s*\{", s)
+            if m:
+              # Insert the properties loader before android { ... } and then inject signing configs into android block.
+              # We'll prepend the properties loader, then inject signingConfigs/buildTypes into the first android { }.
+              props_loader = 'def keystorePropertiesFile = rootProject.file("keystore.properties")\n' \
+                             'def keystoreProperties = new Properties()\n' \
+                             'if (keystorePropertiesFile.exists()) {\n' \
+                             '    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n' \
+                             '}\n\n'
+
+              if "keystorePropertiesFile" not in s:
+                s = props_loader + s
+
+              # Inject signingConfigs + release signingConfig inside android { } (after android { line)
+              s = re.sub(
+                r"(\bandroid\s*\{\s*)",
+                r"\1\n    signingConfigs {\n        release {\n            if (keystorePropertiesFile.exists()) {\n                storeFile file(\"upload-keystore.jks\")\n                storePassword keystoreProperties['storePassword']\n                keyAlias keystoreProperties['keyAlias']\n                keyPassword keystoreProperties['keyPassword']\n            }\n        }\n    }\n",
+                s,
+                count=1
+              )
+
+              # Ensure release build type has signingConfig
+              if "buildTypes" in s and "signingConfig signingConfigs.release" not in s:
+                s = re.sub(
+                  r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
+                  r"\1\n            signingConfig signingConfigs.release",
+                  s,
+                  count=1
+                )
+
+              bg.write_text(s, encoding="utf-8")
+              print("Injected signing config into android/app/build.gradle for CI-stable release signing.")
+            else:
+              bg.write_text(s + "\n\n" + signing_block + "\n", encoding="utf-8")
+              print("Appended signing config block (android { } not detected).")
+
+          PY
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      - name: Build Signed Release AAB
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon --stacktrace clean bundleRelease
+          ls -la app/build/outputs/bundle/release || true
 
       - name: Verify AAB is signed (jarsigner)
-        working-directory: android
         run: |
-          ls -la app/build/outputs/bundle/release || true
-          jarsigner -verify -verbose -certs app/build/outputs/bundle/release/*.aab
+          AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "ERROR: AAB not found at $AAB_PATH" >&2
+            find android/app/build/outputs -maxdepth 5 -type f -name "*.aab" -print || true
+            exit 1
+          fi
+
+          echo "Verifying signature on: $AAB_PATH"
+          jarsigner -verify -verbose -certs "$AAB_PATH"
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hangupfx-release-aab
-          path: android/app/build/outputs/bundle/release/*.aab
+          name: app-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      - name: Upload mapping (if present)
+        uses: actions/upload-artifact@v4
+        with:
+          name: proguard-mapping
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
