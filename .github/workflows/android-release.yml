@@ -1,5 +1,5 @@
 name: Android Release Build
-  
+
 on:
   push:
     branches:
@@ -31,7 +31,7 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Build web (skip if missing)
+      - name: Build web (Expo export to dist)
         run: npx expo export --platform web --output-dir dist
         env:
           NODE_ENV: production
@@ -48,73 +48,62 @@ jobs:
             echo "capacitor.config.json exists"
           fi
 
-      
-      - name: Add Capacitor Android platform
+      - name: Recreate Capacitor Android platform
         run: |
-               rm -rf android
-               npx cap add android
-               npx cap sync android
+          rm -rf android
+          npx cap add android
+          npx cap sync android
 
- 
-
-      
       - name: Decode upload keystore
         run: |
           mkdir -p android/app
           printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
-
-      
+          ls -la android/app/upload-keystore.jks
 
       - name: Make Gradle wrapper executable
-        run: chmod +x android/gradlew || true
+        run: |
+          chmod +x android/gradlew
 
-
-      - name: Build release AAB
+      - name: Build SIGNED release AAB
         working-directory: android
         env:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          printf "\nMYAPP_UPLOAD_STORE_FILE=upload-keystore.jks" >> app/gradle.properties
-
-
-          printf "\nMYAPP_UPLOAD_STORE_PASSWORD=%s" "$ANDROID_STORE_PASSWORD" >> app/gradle.properties
-
-
-          printf "\nMYAPP_UPLOAD_KEY_ALIAS=%s" "$ANDROID_KEY_ALIAS" >> app/gradle.properties
-
-          printf "\nMYAPP_UPLOAD_KEY_PASSWORD=%s\n" "$ANDROID_KEY_PASSWORD" >> app/gradle.properties
-
-
-                       cat > force-kotlin.gradle <<'EOF'
+          # Force Kotlin stdlib single version to avoid duplicate classes
+          cat > force-kotlin.gradle <<'EOF'
           allprojects {
-              configurations.all {
-                  resolutionStrategy.eachDependency { details ->
-                      if (details.requested.group == "org.jetbrains.kotlin" &&
-                          details.requested.name.startsWith("kotlin-stdlib")) {
-                          details.useVersion "1.8.22"
-                          details.because "Avoid duplicate Kotlin stdlib classes from mixed versions"
-                      }
-                  }
+            configurations.all {
+              resolutionStrategy.eachDependency { details ->
+                if (details.requested.group == "org.jetbrains.kotlin" &&
+                    details.requested.name.startsWith("kotlin-stdlib")) {
+                  details.useVersion "1.8.22"
+                  details.because "Avoid duplicate Kotlin stdlib classes from mixed versions"
+                }
               }
+            }
           }
           EOF
 
-          
-             ./gradlew --no-daemon bundleRelease -Pkotlin.stdlib.default.dependency=false -I force-kotlin.gradle-Pandroid.injected.signing.store.file=app/upload-keystore.jks -Pandroid.injected.signing.store.password="$ANDROID_STORE_PASSWORD" -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
- 
+          # Build with injected signing so Play Console recognizes signature
+          ./gradlew --no-daemon bundleRelease \
+            -Pkotlin.stdlib.default.dependency=false \
+            -I force-kotlin.gradle \
+            -Pandroid.injected.signing.store.file=app/upload-keystore.jks \
+            -Pandroid.injected.signing.store.password="$ANDROID_STORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
 
-
-
-      - name: Verify AAB is signed
+      - name: Verify AAB is signed (jarsigner)
         working-directory: android
-       run: |
-              jarsigner -verify -verbose -certs app/build/outputs/bundle/release/*.aab
+        run: |
+          ls -la app/build/outputs/bundle/release || true
+          jarsigner -verify -verbose -certs app/build/outputs/bundle/release/*.aab
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
           name: hangupfx-release-aab
-          path: app/build/outputs/bundle/release/*.aab
+          path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
