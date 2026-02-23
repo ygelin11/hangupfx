@@ -20,8 +20,9 @@ env:
   NODE_VERSION: "20"
   JAVA_VERSION: "21"
   CI: "true"
-  # IMPORTANT: set this to your real Play Console package name
-  CAP_APP_ID: "com.example.hangupfx"
+
+  # LOCKED package name (matches app.json and Play Console forever)
+  CAP_APP_ID: "com.ygelin11.hangupfx"
   CAP_APP_NAME: "HangUpFX"
 
 jobs:
@@ -42,54 +43,51 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Ensure capacitor.config.json exists and has appId/appName/webDir (no heredoc)
+      - name: Ensure Capacitor deps exist (CI-stable)
+        run: |
+          set -euo pipefail
+          npm install --no-save @capacitor/cli @capacitor/core @capacitor/android
+
+      - name: Build web assets for Capacitor (Expo export -> dist)
+        run: |
+          set -euo pipefail
+          # Famous/Expo projects often need export, not "build"
+          # Output must contain dist/index.html for Capacitor webDir
+          npx --yes expo export --platform web --output-dir dist
+          test -f dist/index.html
+          ls -la dist | head -n 50
+
+      - name: Ensure capacitor.config.json (appId/appName/webDir)
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, pathlib
+          import json, os, pathlib, sys
 
-          app_id = os.environ.get("CAP_APP_ID", "com.example.hangupfx")
-          app_name = os.environ.get("CAP_APP_NAME", "HangUpFX")
+          app_id = os.environ["CAP_APP_ID"]
+          app_name = os.environ["CAP_APP_NAME"]
+          webdir = "dist"
+
+          idx = pathlib.Path(webdir) / "index.html"
+          if not idx.exists():
+            print(f"ERROR: {webdir}/index.html missing; web export failed", file=sys.stderr)
+            sys.exit(1)
 
           p = pathlib.Path("capacitor.config.json")
-
+          data = {}
           if p.exists():
             try:
               data = json.loads(p.read_text(encoding="utf-8"))
             except Exception:
               data = {}
-          else:
-            data = {}
 
-          # Ensure required fields
-          if not data.get("appId"):
-            data["appId"] = app_id
-          if not data.get("appName"):
-            data["appName"] = app_name
-
-          # Web output dir: keep existing if present, else default to "dist"
-          if not data.get("webDir"):
-            data["webDir"] = "dist"
-
-          # Good default for modern setups
-          if "bundledWebRuntime" not in data:
-            data["bundledWebRuntime"] = False
+          data["appId"] = app_id
+          data["appName"] = app_name
+          data["webDir"] = webdir
+          data.setdefault("bundledWebRuntime", False)
 
           p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-          print("capacitor.config.json ready:")
-          print(f"  appId={data['appId']}")
-          print(f"  appName={data['appName']}")
-          print(f"  webDir={data['webDir']}")
+          print("capacitor.config.json ready:", data["appId"], data["webDir"])
           PY
-
-      - name: Build web (if present)
-        run: npm run build --if-present
-
-      - name: Ensure Capacitor deps exist (CI-stable)
-        run: |
-          set -euo pipefail
-          npm install --no-save @capacitor/cli @capacitor/core @capacitor/android
 
       - name: Recreate Capacitor Android platform
         run: |
@@ -109,10 +107,6 @@ jobs:
             android/**/gradle-wrapper.properties
             android/**/build.gradle*
             android/**/settings.gradle*
-            android/gradle/*.versions.toml
-            android/**/versions.properties
-            android/buildSrc/**/Versions.kt
-            android/buildSrc/**/Dependencies.kt
 
       - name: Decode upload keystore to android/app/upload-keystore.jks
         env:
@@ -128,7 +122,7 @@ jobs:
           test -f android/app/upload-keystore.jks
           ls -la android/app/upload-keystore.jks
 
-      - name: Write keystore.properties for Gradle (no heredoc)
+      - name: Write keystore.properties for Gradle
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -145,11 +139,10 @@ jobs:
             "$ANDROID_KEY_ALIAS" \
             "$ANDROID_KEY_PASSWORD" > android/keystore.properties
 
-          echo "keystore.properties created at android/keystore.properties"
           sed -e 's/storePassword=.*/storePassword=***REDACTED***/' \
               -e 's/keyPassword=.*/keyPassword=***REDACTED***/' android/keystore.properties
 
-      - name: Force release signing config (no app/app path issues)
+      - name: Ensure release signing uses upload-keystore.jks (no app/app path issues)
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -165,53 +158,41 @@ jobs:
           # Add keystore loader if missing
           if "keystorePropertiesFile" not in s:
             loader = (
-              'def keystorePropertiesFile = rootProject.file("keystore.properties")\n'
-              'def keystoreProperties = new Properties()\n'
-              'if (keystorePropertiesFile.exists()) {\n'
-              '    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n'
-              '}\n\n'
+              "def keystorePropertiesFile = rootProject.file('keystore.properties')\n"
+              "def keystoreProperties = new Properties()\n"
+              "if (keystorePropertiesFile.exists()) {\n"
+              "    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n"
+              "}\n\n"
             )
             s = loader + s
 
-          # Force storeFile to be relative to android/app/
-          s = re.sub(r"storeFile\s+file\([^\)]*\)", 'storeFile file("upload-keystore.jks")', s)
+          # Force storeFile to local android/app/upload-keystore.jks
+          s = re.sub(r"storeFile\s+file\([^\)]*\)", "storeFile file('upload-keystore.jks')", s)
 
-          # Ensure release build uses signing config
-          if "signingConfigs" in s and "buildTypes" in s:
-            if re.search(r"buildTypes\s*\{[\s\S]*?release\s*\{", s) and "signingConfig signingConfigs.release" not in s:
-              s = re.sub(
-                r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
-                r"\1\n            signingConfig signingConfigs.release",
-                s,
-                count=1
-              )
-            bg.write_text(s, encoding="utf-8")
-            print("Signing config patched/ensured.")
-            sys.exit(0)
+          # Ensure signingConfigs.release exists inside android { }
+          if "signingConfigs" not in s:
+            m = re.search(r"(\bandroid\s*\{\s*)", s)
+            if not m:
+              print("ERROR: android { } block not detected in build.gradle", file=sys.stderr)
+              sys.exit(1)
+            s = re.sub(
+              r"(\bandroid\s*\{\s*)",
+              r"\\1\n    signingConfigs {\n        release {\n            if (keystorePropertiesFile.exists()) {\n                storeFile file('upload-keystore.jks')\n                storePassword keystoreProperties['storePassword']\n                keyAlias keystoreProperties['keyAlias']\n                keyPassword keystoreProperties['keyPassword']\n            }\n        }\n    }\n",
+              s,
+              count=1
+            )
 
-          # If signingConfigs missing entirely, inject inside android { }
-          m = re.search(r"\bandroid\s*\{", s)
-          if not m:
-            print("ERROR: android { } block not detected in build.gradle", file=sys.stderr)
-            sys.exit(1)
-
-          s = re.sub(
-            r"(\bandroid\s*\{\s*)",
-            r"\1\n    signingConfigs {\n        release {\n            if (keystorePropertiesFile.exists()) {\n                storeFile file(\"upload-keystore.jks\")\n                storePassword keystoreProperties['storePassword']\n                keyAlias keystoreProperties['keyAlias']\n                keyPassword keystoreProperties['keyPassword']\n            }\n        }\n    }\n",
-            s,
-            count=1
-          )
-
-          if "buildTypes" in s and "signingConfig signingConfigs.release" not in s:
+          # Ensure buildTypes.release uses signingConfigs.release
+          if "signingConfig signingConfigs.release" not in s:
             s = re.sub(
               r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
-              r"\1\n            signingConfig signingConfigs.release",
+              r"\\1\n            signingConfig signingConfigs.release",
               s,
               count=1
             )
 
           bg.write_text(s, encoding="utf-8")
-          print("Signing config injected.")
+          print("Release signing ensured.")
           PY
 
       - name: Make Gradle wrapper executable
@@ -233,7 +214,6 @@ jobs:
             find android/app/build/outputs -maxdepth 6 -type f -name "*.aab" -print || true
             exit 1
           fi
-          echo "Verifying signature on: $AAB_PATH"
           jarsigner -verify -verbose -certs "$AAB_PATH"
 
       - name: Upload AAB artifact
@@ -242,3 +222,10 @@ jobs:
           name: app-release-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      - name: Upload mapping (if present)
+        uses: actions/upload-artifact@v4
+        with:
+          name: proguard-mapping
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
