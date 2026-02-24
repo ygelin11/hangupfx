@@ -89,7 +89,7 @@ jobs:
                f\"    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'\\n\" \
                f\"    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'\\n\" \
                f\"    resolutionStrategy.eachDependency {{ details ->\\n\" \
-               f\"      if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name.startsWith('kotlin-stdlib')) {{\\n\" \
+               f\"      if (details.requested.group == 'org.jetbrains.kotlin' and details.requested.name.startswith('kotlin-stdlib')) {{\\n\" \
                f\"        details.useVersion('{os.environ['KOTLIN_STDLIB_VERSION']}')\\n\" \
                f\"        details.because('CI: align Kotlin stdlib to avoid duplicate classes')\\n\" \
                f\"      }}\\n\" \
@@ -126,16 +126,23 @@ jobs:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "Missing secret ANDROID_KEYSTORE_BASE64" >&2
+            exit 1
+          fi
           mkdir -p android/app
-       echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks 
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
           test -s android/app/upload-keystore.jks
           ls -la android/app/upload-keystore.jks
-          
+
       - name: Verify decoded keystore
         shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-         set -euo pipefail
-         keytool -list -keystore android/app/upload-keystore.jks -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+          set -euo pipefail
+          keytool -list -keystore android/app/upload-keystore.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
+
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
