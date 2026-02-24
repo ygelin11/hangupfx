@@ -18,7 +18,7 @@ concurrency:
 
 env:
   NODE_VERSION: "20"
-  JAVA_VERSION: "21"
+  JAVA_VERSION: "17"
   CI: "true"
 
   CAP_APP_ID: "com.ygelin11.hangupfx"
@@ -98,7 +98,7 @@ jobs:
                f\"}}\\n\"); \
           p.write_text(s if marker in s else (s+fix), encoding='utf-8')"
 
-      - name: Set up Java (JDK 21) + Gradle cache (android/)
+      - name: Set up Java (JDK 17) + Gradle cache (android/)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
