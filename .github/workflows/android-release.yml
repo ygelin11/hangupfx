@@ -131,7 +131,8 @@ jobs:
             exit 1
           fi
           mkdir -p android/app
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          echo "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/upload-keystore.jks
+          wc -c android/app/upload-keystore.jks
           test -s android/app/upload-keystore.jks
           ls -la android/app/upload-keystore.jks
 
