@@ -189,6 +189,7 @@ jobs:
             exit "$STATUS"
           fi
 
+          find app/build/outputs -maxdepth 6 -type f -name "*.aab" -print || true
           ls -la app/build/outputs/bundle/release || true
 
       - name: Upload Gradle log (always)
@@ -198,11 +199,22 @@ jobs:
           name: gradle-build-log
           path: gradle-build.log
           if-no-files-found: ignore
-
+       - name: Set AAB_PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAB_PATH="$(find android/app/build/outputs -maxdepth 6 -type f -name "*.aab" | head -n 1)"
+          if [ -z "$AAB_PATH" ]; then
+            echo "ERROR: No AAB found under android/app/build/outputs"
+            find android/app/build/outputs -maxdepth 6 -type f -print || true
+            exit 1
+          fi
+          echo "AAB_PATH=${AAB_PATH}" >> "$GITHUB_ENV"
+          echo "Found AAB at: $AAB_PATH"
       - name: Verify AAB is signed (jarsigner)
         run: |
           set -euo pipefail
-          AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
+          AAB_PATH="${AAB_PATH:-android/app/build/outputs/bundle/release/app-release.aab}"
           if [ ! -f "$AAB_PATH" ]; then
             echo "ERROR: AAB not found at $AAB_PATH" >&2
             find android/app/build/outputs -maxdepth 6 -type f -name "*.aab" -print || true
@@ -210,9 +222,11 @@ jobs:
           fi
           jarsigner -verify -verbose -certs "$AAB_PATH"
 
+     
+
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
-          path: android/app/build/outputs/bundle/release/app-release.aab
+          path: ${{ env.AAB_PATH }}
           if-no-files-found: error
